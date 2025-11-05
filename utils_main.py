@@ -154,7 +154,6 @@ def cluster_process(cluster, params, params_cluster, base_filename=None):
         model.set_block(False)
         model.set_states(nsites=params['N'], nelec=params['N'], sz=params['sz'])
         model.set_states_sort()
-        #model.read_s2(params['N'], params['sz'], params['s2'])
         model.block_s2(params['N'], params['sz'], params['s2'])
 
         if params['restart']:

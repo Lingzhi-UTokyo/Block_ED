@@ -451,8 +451,12 @@ class Hubbard_SingleBand:
 
     def min_t11_occ_s2(self, double_occ_s2, eigvecs_s2, dimspin_s2):
         sorted_indices_s2= [np.argsort(double_occ) for double_occ in double_occ_s2]
-        sorted_indices_selected= [sorted_indices[0:dimspin] for sorted_indices, dimspin in zip(sorted_indices_s2, dimspin_s2)]
-        return np.concatenate(sorted_indices_selected), compute_T11m1_norm(np.concatenate(eigvecs_s2, axis=1),np.concatenate(sorted_indices_selected), np.sum(dimspin_s2))
+        sorted_indices_selected_s2= [sorted_indices[0:dimspin] for sorted_indices, dimspin in zip(sorted_indices_s2, dimspin_s2)]
+
+        dimspin = np.sum(dimspin_s2)
+        eigvecs = np.concatenate(eigvecs_s2, axis=1)
+        indices_selected = np.concatenate(sorted_indices_selected_s2)
+        return indices_selected, compute_T11m1_norm(eigvecs, indices_selected, dimspin)
 
     def min_t11_energy(self, double_occ, eigvecs, dimspin, eigvals):
         sorted_indices=np.argsort(eigvals)
@@ -465,7 +469,11 @@ class Hubbard_SingleBand:
         sorted_indices_selected_s2= [sorted_indices[0:dimspin] for sorted_indices, dimspin in zip(sorted_indices_s2, dimspin_s2)]
         sorted_by_occ_s2= [np.argsort(double_occ[sorted_indices_selected]) for double_occ, sorted_indices_selected in zip(double_occ_s2, sorted_indices_selected_s2)]
         sorted_indices_selected_by_occ_s2= [ sorted_indices_selected[sorted_by_occ] for sorted_indices_selected, sorted_by_occ in zip(sorted_indices_selected_s2, sorted_by_occ_s2)]
-        return np.concatenate(sorted_indices_selected_by_occ_s2), compute_T11m1_norm(np.concatenate(eigvecs_s2, axis=1), np.concatenate(sorted_indices_selected_by_occ_s2), np.sum(dimspin_s2))
+
+        dimspin = np.sum(dimspin_s2)
+        eigvecs = np.concatenate(eigvecs_s2, axis=1)
+        indices_selected = np.concatenate(sorted_indices_selected_by_occ_s2)
+        return indices_selected, compute_T11m1_norm(eigvecs, indices_selected, dimspin)
 
     def greedy_swap(self, init_idx, others, eigvecs, dimspin, f=None):
         t11_selected_indices=init_idx.copy()
@@ -520,6 +528,29 @@ class Hubbard_SingleBand:
         f_svd.write(f"Best |T11-1| = {best_norm:.12f}\n")
         f_svd.write(f"Total time cost: {time.time()-t0:.1f}s\n")
         f_svd.close()
+
+        # Resort the final selected indices by double occupation values
+        sorted_by_occ = np.argsort(double_occ[t11_selected_indices])
+        return t11_selected_indices[sorted_by_occ], best_norm
+
+    def min_t11_single_s2(self, double_occ_s2, eigvecs_s2, dimspin_s2, 
+                       ratio=5):
+        t0=time.time()
+        sorted_indices_s2    = [ np.argsort(double_occ) for double_occ in double_occ_s2]
+        size_space_mint11_s2 = [ min(ratio*dimspin, len(double_occ)) for dimspin, double_occ in zip(dimspin_s2, double_occ_s2)]
+        init_idx_s2          = [ sorted_indices[0:dimspin].copy() for sorted_indices, dimspin in zip(sorted_indices_s2, dimspin_s2)]
+        others_s2            = [ sorted_indices[dimspin:size_space_mint11].copy() for sorted_indices, size_space_mint11, dimspin in zip(sorted_indices_s2, size_space_mint11_s2, dimspin_s2)]
+
+        #if self.sz is None:
+        #    f_svd=open(f"tmp/N{self.N}_U{self.U:.4f}_t{self.t_values[0]:.4f}_rank{rank}_single.txt", "w")
+        #else:
+        #    f_svd=open(f"tmp/N{self.N}_U{self.U:.4f}_t{self.t_values[0]:.4f}_sz{self.sz:.4f}_rank{rank}_single.txt", "w")
+        #f_svd.write(f"Start the greedy algorithm to find the best t11 indices\n")
+
+        t11_selected_indices, t11_swap_indices, best_norm=self.greedy_swap(init_idx, others, eigvecs, dimspin, f_svd)
+        #f_svd.write(f"Best |T11-1| = {best_norm:.12f}\n")
+        #f_svd.write(f"Total time cost: {time.time()-t0:.1f}s\n")
+        #f_svd.close()
 
         # Resort the final selected indices by double occupation values
         sorted_by_occ = np.argsort(double_occ[t11_selected_indices])
