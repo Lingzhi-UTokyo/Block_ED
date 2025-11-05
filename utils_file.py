@@ -39,7 +39,7 @@ def get_all_possible_vectors(cluster, max_distance=None):
     return sorted(vectors, key=lambda v: v[0]**2 + v[1]**2)
 
 
-def write_coefficients(f, cluster, bonds, coeffs_list, error, T11m1_norm):
+def write_coefficients(f, cluster, bonds, coeffs_list, error, T11m1_norm, overlap):
     """Write individual bond coefficients."""
     f.write("\n=== Individual Bond Coefficients ===\n")
     f.write(f"Constant term: {coeffs_list[0].real:.10f}\n")
@@ -87,6 +87,9 @@ def write_coefficients(f, cluster, bonds, coeffs_list, error, T11m1_norm):
     f.write(f"Residual: {error[1]:.10f}\n")
     f.write(f"R^2: {error[2]:.10f}\n")
     f.write(f"T11-1 norm: {T11m1_norm:.10f}\n")
+    if overlap is not None:
+        f.write(f"Overlap: {overlap:.10f}\n")
+    
 
 
 def write_errors(f, individual_error, class_error):
@@ -150,12 +153,12 @@ def write_bond_structure(f, cluster, bonds):
                         f.write("\n")
 
 def write_results_to_file(f, hole, class_idx, cluster_idx, rank, cluster_time, 
-                         cluster, bonds, coeffs, error, T11m1_norm):
+                         cluster, bonds, coeffs, error, T11m1_norm, overlap):
     """Write all results to a file in a structured format."""
     write_basic_info(f, hole, class_idx, cluster_idx, rank, cluster_time)
     write_cluster_points(f, cluster)
     write_bond_structure(f, cluster, bonds)
-    write_coefficients(f, cluster, bonds, coeffs, error, T11m1_norm)
+    write_coefficients(f, cluster, bonds, coeffs, error, T11m1_norm, overlap)
 
 
 def read_previous(filename):

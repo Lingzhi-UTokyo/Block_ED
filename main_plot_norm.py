@@ -92,15 +92,17 @@ def main(params):
         print(f"Number of work items per rank: {len(rank_work_items)}\n")
     
     U=1.0
-    t_list = list(np.linspace(0.0200, 0.6000, 30))
+    t_list = list(np.linspace(0.2050, 0.4000, 40))
     errors_list=[]
     t11s_list=[]
+    overlaps_list=[]
     for work_idx, (hole, class_idx) in rank_work_items:
         # Process work item
         t0 = time.time()
         x_list=[]
         errors=[]
         t11s=[]
+        overlaps=[]
         for idx in range(len(t_list)):
             params['t'] = float(t_list[idx])
             if params['ratio'] is not None:
@@ -113,12 +115,15 @@ def main(params):
                 try:
                     errors.append(read_key(base_filename, "Relative"))
                     t11s.append(read_key(base_filename, "T11")/nstate)
+                    if params['type'] == "adiabatic":
+                        overlaps.append(read_key(base_filename, "Overlap"))
                     x_list.append(params['t']/U)
                 except:
                     print(f"Fail to read results from {base_filename}.")
                     continue
         errors_list.append(errors)
         t11s_list.append(t11s)
+        overlaps_list.append(overlaps)
 
         # Print progress for rank 0
         if rank == 0:
@@ -163,10 +168,28 @@ def main(params):
                         f.write(" NaN")
                 f.write("\n")
         
+        if params['type'] == "adiabatic":
+            with open(f"{result_dir}/overlaps_data{suffix}.txt", "w") as f:
+                f.write("# Overlap values\n")
+                for idx in range(len(overlaps_list)):
+                    work_idx, (hole, class_idx) = rank_work_items[idx]
+                    f.write(f"# hole{hole}_class{class_idx}")
+                f.write("\n")
+
+                for i, x in enumerate(x_list):
+                    f.write(f"{x:.6f}")
+                    for idx in range(len(overlaps_list)):
+                        if i < len(overlaps_list[idx]):
+                            f.write(f" {overlaps_list[idx][i]:.6f}")
+                        else:
+                            f.write(" NaN")
+                    f.write("\n")
+        
         print(f"Data saved to {result_dir}{suffix}")
 
     # Extract real parts and find global min/max
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
+    fig3, ax3 = plt.subplots(1, 1, figsize=(6, 6))
 
     max_y = np.max(np.array(t11s_list))
     min_y = np.min(np.array(t11s_list))
@@ -181,7 +204,7 @@ def main(params):
     ax1.set_title("T11-1 of all clusters")
     ax1.set_xlabel("t/U")
     ax1.set_ylabel("T11-1")
-    ax1.set_xlim(0, 0.7)
+    ax1.set_xlim(0.2000, 0.4000)
     ax1.set_ylim(0.0, max_y+0.1*delta)
     
     for idx in range(len(errors_list)):
@@ -192,8 +215,22 @@ def main(params):
     ax2.set_title("Error of all clusters")
     ax2.set_xlabel("t/U")
     ax2.set_ylabel("Error")
-    ax2.set_xlim(0, 0.7)
+    ax2.set_xlim(0.2000, 0.4000)
     ax2.set_ylim(0.0, 1.10)
+    fig.savefig(f"{result_dir}/t11{suffix}.png", dpi=300, bbox_inches='tight')
+
+    if params['type'] == "adiabatic":
+        for idx in range(len(overlaps_list)):
+            work_idx, (hole, class_idx)=rank_work_items[idx]
+            ax3.plot(x_list, overlaps_list[idx], label=f"hole{hole}_class{class_idx}", linewidth=1.0)
+            ax3.scatter(x_list, overlaps_list[idx], linewidth=1.0)
+
+        ax3.set_title("Overlap of all clusters")
+        ax3.set_xlabel("t/U")
+        ax3.set_ylabel("Overlap")
+        ax3.set_xlim(0.2000, 0.4000)
+        fig3.savefig(f"{result_dir}/overlaps{suffix}.png", dpi=300, bbox_inches='tight')
+        plt.close(fig3)
     
     # Create a single legend for both plots
     #handles, labels = ax1.get_legend_handles_labels()
@@ -203,7 +240,6 @@ def main(params):
     
     # Adjust layout to ensure legend width matches subplot width
     #plt.subplots_adjust(bottom=0.15, left=0.1, right=0.9)  # Leave space for legend at bottom
-    fig.savefig(f"{result_dir}/t11{suffix}.png", dpi=300, bbox_inches='tight')
     plt.close(fig)
                     
 

@@ -56,7 +56,7 @@ def plot_same(x_list, data1, data2, title=None, xlabel=None, ylabel=None, xlim=N
         fig, ax = plt.subplots(1, 1, figsize=(6, 6))
         
         if xlim is None:
-            xlim=(0,0.7)
+            xlim=(0.2000, 0.4000)
         if ylim is None:
             data_real = np.array(data1).real
             min_y, max_y = np.min(data_real), np.max(data_real)
@@ -98,7 +98,7 @@ def plot_diff(x_list, data1, data2, title1=None, title2=None, xlabel=None, ylabe
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))  # 创建一行两列的子图
         
         if xlim is None:
-            xlim=(0,0.7)
+            xlim=(0.2000, 0.4000)
         if ylim is None:
             data_real = np.array(data1).real
             min_y, max_y = np.min(data_real), np.max(data_real)
@@ -155,7 +155,7 @@ def main(params):
     clusters = None
     work_items = None
     U=1.0
-    t_list = list(np.linspace(0.0200, 0.6000, 30))
+    t_list = list(np.linspace(0.2050, 0.4000, 40))
     
     # Compute clusters on rank 0
     if is_root():
@@ -207,9 +207,9 @@ def main(params):
 
 
         eigvals_list=[]
-        eigvals_sorted_list=[]
         double_occ_list=[]
-        double_occ_sorted_list=[]
+        eigvals_selected_list=[]
+        double_occ_selected_list=[]
         x_list=[]
         for idx in range(len(t_list)):
             params['t'] = float(t_list[idx])
@@ -237,30 +237,25 @@ def main(params):
                     eigvals=np.loadtxt(f"{eig_filename}_eigvals.npy", dtype=float)/U
                 double_occ=np.loadtxt(f"{occ_filename}_double_occupation_expectation.npy", dtype=complex)
                 selected_indices=np.loadtxt(f"{occ_filename}_t11_selected_indices.npy", dtype=float).astype(int)
-
                 sorted_indices_occ=np.argsort(double_occ)
-                double_occ = double_occ[sorted_indices_occ]
 
-                selected_double_occ = double_occ[selected_indices]
-                sorted_indices_by_occ = selected_indices[np.argsort(selected_double_occ)]
-
-                eigvals_list.append(eigvals)
-                double_occ_list.append(double_occ)
-                eigvals_sorted_list.append(eigvals[sorted_indices_by_occ][0:dimspin])
-                double_occ_sorted_list.append(double_occ[sorted_indices_by_occ][0:dimspin])
+                eigvals_list.append((eigvals).copy())
+                double_occ_list.append((double_occ[sorted_indices_occ]).copy())
+                eigvals_selected_list.append((eigvals[selected_indices]).copy())
+                double_occ_selected_list.append((double_occ[selected_indices]).copy())
                 x_list.append(params['t']/U)
             except:
                 continue
 
         #plot_diff(x_list, eigvals_list, eigvals_sorted_list, filename=f"{result_dir}/eigvals_diff_hole{hole}_class{class_idx}.png", ylabel="energy", title1="Energy of all states", title2="Energy of selected states")
         #plot_diff(x_list, double_occ_list, double_occ_sorted_list, filename=f"{result_dir}/double_occ_diff_hole{hole}_class{class_idx}.png", ylabel="sites with double_occ", title1="Sites with double_occ of all states", title2="Sites with double_occ of selected states")
-        plot_same(x_list, eigvals_list, eigvals_sorted_list, filename=f"{result_dir}/eigvals{suffix_fig}.png", ylabel="energy", title="Energy of all states")
-        plot_same(x_list, double_occ_list, double_occ_sorted_list, filename=f"{result_dir}/dc{suffix_fig}.png", ylabel="sites with double_occ", title="Sites with double_occ of all states")
+        plot_same(x_list, eigvals_list, eigvals_selected_list, filename=f"{result_dir}/eigvals{suffix_fig}.png", ylabel="energy", title="Energy of all states")
+        plot_same(x_list, double_occ_list, double_occ_selected_list, filename=f"{result_dir}/dc{suffix_fig}.png", ylabel="sites with double_occ", title="Sites with double_occ of all states")
         
         write_data(x_list, double_occ_list       , filename=f"{result_dir}/data/data_dc{suffix_fig}.txt")
         write_data(x_list, eigvals_list          , filename=f"{result_dir}/data/data_eigvals{suffix_fig}.txt")
-        write_data(x_list, double_occ_sorted_list, filename=f"{result_dir}/data/data_dc_selected{suffix_fig}.txt")
-        write_data(x_list, eigvals_sorted_list   , filename=f"{result_dir}/data/data_eigvals_selected{suffix_fig}.txt")
+        write_data(x_list, double_occ_selected_list, filename=f"{result_dir}/data/data_dc_selected{suffix_fig}.txt")
+        write_data(x_list, eigvals_selected_list   , filename=f"{result_dir}/data/data_eigvals_selected{suffix_fig}.txt")
         
 
         # Print progress for rank 0

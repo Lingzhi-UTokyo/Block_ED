@@ -26,6 +26,7 @@ def parse_arguments(rank=0):
     params['t3'] = None
     params['sz'] = None
     params['s2'] = None
+    params['s2_fix'] = False
     params['type'] = None
     params['delta'] = None
     params['delta2'] = None
@@ -55,6 +56,8 @@ def parse_arguments(rank=0):
             params['sz'] = float(value)
         elif key == 's2'.upper():
             params['s2'] = float(value)
+        elif key == 'S2_FIX'.upper():
+            params['s2_fix'] = bool(value)
         elif key == 'type'.upper():
             params['type'] = value
         elif key == 'delta'.upper():
@@ -126,12 +129,12 @@ def distribute_work(work_items, rank, size):
 
 def cluster_save_results(result_dir, hole, class_idx, cluster_idx, rank, cluster_time, 
                         cluster, bonds, 
-                        coeffs, error, T11m1_norm):
+                        coeffs, error, T11m1_norm, overlap):
     try:
         base_filename = f"{result_dir}/hole{hole}_class{class_idx}_cluster{cluster_idx}"
         with open(f"{base_filename}_results.txt", 'w') as f:
             write_results_to_file(f, hole, class_idx, cluster_idx, rank, cluster_time, 
-                                cluster, bonds, coeffs, error, T11m1_norm)
+                                cluster, bonds, coeffs, error, T11m1_norm, overlap)
         write_file(f"{base_filename}_results.txt", f"Task is finished at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     except Exception as e:
         raise IOError(f"Failed to save cluster results: {str(e)}")
@@ -250,7 +253,6 @@ def cluster_process_work_item(hole, class_idx, clusters, params, rank):
         np.savetxt(f"{base_filename}_states.npy", model.states, fmt="%d")
         np.savetxt(f"{base_filename}_s2_digonal.npy", np.column_stack([model.S2_diag, model.S2_error]))
         np.savetxt(f"{base_filename}_s2_selected.npy", np.column_stack([model.S2_diag[model.t11_selected_indices], model.S2_error[model.t11_selected_indices]]))
-
         
         # Process all clusters in this class
         for cluster_idx in range(len(clusters.clusters_classified[hole][class_idx])):
@@ -263,7 +265,7 @@ def cluster_process_work_item(hole, class_idx, clusters, params, rank):
                                time.time() - t0_cluster, 
                                clusters.clusters_classified[hole][class_idx][cluster_idx], 
                                bonds, 
-                               coeffs, error, model.T11m1_norm)
+                               coeffs, error, model.T11m1_norm, model.overlap)
         # Clean up
         model.clear()
         del model

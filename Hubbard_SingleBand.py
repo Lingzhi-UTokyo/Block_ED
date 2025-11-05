@@ -18,6 +18,27 @@ def compute_T11m1_norm(eigvecs, indices, dimspin):
     except:
         return np.inf
 
+def compute_T11m1_norm_s2(eigvecs_s2, indices_s2, dimspin_s2):
+    dimspin = np.sum(dimspin_s2)
+    eigvecs_s2_selected = [ eigvecs[:, indices] for eigvecs, indices in zip(eigvecs_s2, indices_s2)]
+    eigvecs_selected = np.concatenate(eigvecs_s2_selected, axis=1)
+    try:
+        S_BD=eigvecs_selected[0:dimspin, :]
+        U, Sigma, VH=np.linalg.svd(S_BD)
+        T11m1=U @ np.diag(Sigma) @ U.conj().T-np.eye(dimspin)
+        return norm_matrix(T11m1)
+    except:
+        return np.inf
+
+def compute_T11m1_norm_selected(eigvecs_selected, dimspin):
+    try:
+        S_BD=eigvecs_selected[0:dimspin, :]
+        U, Sigma, VH=np.linalg.svd(S_BD)
+        T11m1=U @ np.diag(Sigma) @ U.conj().T-np.eye(dimspin)
+        return norm_matrix(T11m1)
+    except:
+        return np.inf
+
 def block2m(eigvals_block, eigvecs_block, states_block, states):
     eigvals = np.concatenate(eigvals_block)
     eigvecs = block_diag(*eigvecs_block)
@@ -57,6 +78,7 @@ class Hubbard_SingleBand:
         self.error = False
         self.T11m1 = None
         self.T11m1_norm = np.inf
+        self.overlap = None
         self.t11_selected_indices = None
         self.t11_selected_occupation = None
         self.double_occupation_expectation = None
@@ -67,10 +89,6 @@ class Hubbard_SingleBand:
         self.eigvecs_block = None
         self.states_block = None
         self.S2 = None
-        self.S2_eigvals = None
-        self.S2_eigvecs = None
-
-        self.eigvals_s2 = None
 
         self.s2_U = None
         self.s2_Us = None
@@ -312,7 +330,6 @@ class Hubbard_SingleBand:
                 self.eigvecs_block.append(eigvecs_tmp)
             self.eigvals, self.eigvecs=block2m(self.eigvals_block, self.eigvecs_block, self.states_block, self.states)
             
-    
 
     def set_heff(self, Heff):
         self.Heff=Heff
@@ -351,9 +368,12 @@ class Hubbard_SingleBand:
         return np.diag(self.eigvecs.conj().T @ double_occupation_matrix @ self.eigvecs)
 
     def calc_heff_halffilled(self, params, params_cluster):
-        self.t11_selected_indices = self.select_eigvecs(params, params_cluster)
-
         self.double_occupation_expectation=self.calc_double_occupation_expectation()
+        if params['s2'] is None or not params['s2_fix']:
+            self.t11_selected_indices, best_norm, self.overlap = self.select_eigvecs(params, params_cluster)
+        else:
+            self.t11_selected_indices, best_norm, self.overlap = self.select_eigvecs_s2(params, params_cluster)
+
         self.t11_selected_occupation=self.double_occupation_expectation[self.t11_selected_indices]
         try:
             S_BD=self.eigvecs[0:self.dimspin, self.t11_selected_indices]
@@ -364,6 +384,7 @@ class Hubbard_SingleBand:
             Lambda=np.diag(self.eigvals[self.t11_selected_indices])
             self.Heff=U @ VH @ Lambda @ VH.conj().T @ U.conj().T
         except:
+            self.overlap = None
             self.error=True
             self.T11m1=None
             self.T11m1_norm=np.inf
@@ -381,7 +402,8 @@ class Hubbard_SingleBand:
         eigvecs = self.eigvecs
         double_occupation = self.calc_double_occupation_expectation()
 
-        best_norm=0
+        overlap = None
+        best_norm=np.inf
         if method is None:
             t11_selected_indices, best_norm = self.min_t11_occ(double_occupation, eigvecs, dimspin)
             if best_norm is np.inf:
@@ -400,80 +422,78 @@ class Hubbard_SingleBand:
                 dir2 = f"{dir2}_restart"
             filename_indices = f"{dir1}/{dir2}/hole{params_cluster['hole']}_class{params_cluster['class_idx']}"
             filename_eigvecs = f"{dir1}/{dir3}/hole{params_cluster['hole']}_class{params_cluster['class_idx']}"
-            t11_selected_indices = self.max_overlap_adiabatic(eigvecs, filename_eigvecs, filename_indices)
+            t11_selected_indices, best_norm, overlap = self.max_overlap_adiabatic(eigvecs, dimspin, filename_eigvecs, filename_indices)
         else:
             raise ValueError(f"Invalid method: {method}")
         
-        return t11_selected_indices
+        return t11_selected_indices, best_norm, overlap
     
     def select_eigvecs_s2(self, params, params_cluster):
-        t11_selected_indices = None
-        s2 = params['s2']
+        t11_selected_indices_s2 = None
         method = params['type']
-
-        if s2 is None:
-            raise ValueError(f"s2 is not set")
 
         dimspin_s2 = [ len(indices) for indices in self.s2_indices_spin ]
         eigvals_s2 = [ self.eigvals[indices] for indices in self.s2_indices ]
         eigvecs_s2 = [ self.eigvecs[:, indices] for indices in self.s2_indices ]
         double_occupation_s2 = [ self.double_occupation_expectation[indices] for indices in self.s2_indices ]
 
-        best_norm=0
+        overlap = None
+        best_norm=np.inf
         if method is None:
-            t11_selected_indices, best_norm = self.min_t11_occ(double_occupation_s2, eigvecs_s2, dimspin_s2)
+            t11_selected_indices_s2, best_norm = self.min_t11_occ_s2(double_occupation_s2, eigvecs_s2, dimspin_s2)
             if best_norm is np.inf:
-                t11_selected_indices, best_norm = self.min_t11_single(double_occupation_s2, eigvecs_s2, dimspin_s2, ratio=8)
+                t11_selected_indices_s2, best_norm = self.min_t11_single_s2(double_occupation_s2, eigvecs_s2, dimspin_s2, ratio=8)
         elif method.lower() == "occ":
-            t11_selected_indices, best_norm = self.min_t11_occ(double_occupation_s2, eigvecs_s2, dimspin_s2)
+            t11_selected_indices_s2, best_norm = self.min_t11_occ_s2(double_occupation_s2, eigvecs_s2, dimspin_s2)
         elif method.lower() == "energy":
-            t11_selected_indices, best_norm = self.min_t11_energy(double_occupation_s2, eigvecs_s2, dimspin_s2, eigvals_s2)
+            t11_selected_indices_s2, best_norm = self.min_t11_energy_s2(double_occupation_s2, eigvecs_s2, dimspin_s2, eigvals_s2)
         elif method.lower() == 'single':
-            t11_selected_indices, best_norm = self.min_t11_single(double_occupation_s2, eigvecs_s2, dimspin_s2, ratio=8)
-        elif method.lower() == 'multi':
-            t11_selected_indices, best_norm = self.min_t11_multi(double_occupation_s2, eigvecs_s2, dimspin_s2, ratio=8, n_restarts=40, max_iters_rand=4)
+            t11_selected_indices_s2, best_norm = self.min_t11_single_s2(double_occupation_s2, eigvecs_s2, dimspin_s2, ratio=8)
         elif method.lower() == 'adiabatic':
             dir1, dir2, dir3 = setup_work_environment_previous(params)
             if params['restart']:
                 dir2 = f"{dir2}_restart"
             filename_indices = f"{dir1}/{dir2}/hole{params_cluster['hole']}_class{params_cluster['class_idx']}"
             filename_eigvecs = f"{dir1}/{dir3}/hole{params_cluster['hole']}_class{params_cluster['class_idx']}"
-            t11_selected_indices = self.max_overlap_adiabatic(eigvecs_s2, filename_eigvecs, filename_indices)
+            t11_selected_indices_s2, best_norm, overlap = self.max_overlap_adiabatic_s2(eigvecs_s2, dimspin_s2, self.s2_indices, filename_eigvecs, filename_indices)
         else:
             raise ValueError(f"Invalid method: {method}")
+
+        # Convert segmented indices to global indices
+        indices_selected = []
+        for idx, indices_group in enumerate(t11_selected_indices_s2):
+            global_indices = [self.s2_indices[idx][i] for i in indices_group]
+            indices_selected.extend(global_indices)
         
-        return t11_selected_indices
+        return indices_selected, best_norm, overlap
 
         
     def min_t11_occ(self, double_occ, eigvecs, dimspin):
         sorted_indices=np.argsort(double_occ)
-        return sorted_indices[0:dimspin], compute_T11m1_norm(eigvecs, sorted_indices[0:dimspin], dimspin)
+        indices_selected = sorted_indices[0:dimspin]
+        return indices_selected, compute_T11m1_norm(eigvecs, indices_selected, dimspin)
 
     def min_t11_occ_s2(self, double_occ_s2, eigvecs_s2, dimspin_s2):
-        sorted_indices_s2= [np.argsort(double_occ) for double_occ in double_occ_s2]
-        sorted_indices_selected_s2= [sorted_indices[0:dimspin] for sorted_indices, dimspin in zip(sorted_indices_s2, dimspin_s2)]
-
-        dimspin = np.sum(dimspin_s2)
-        eigvecs = np.concatenate(eigvecs_s2, axis=1)
-        indices_selected = np.concatenate(sorted_indices_selected_s2)
-        return indices_selected, compute_T11m1_norm(eigvecs, indices_selected, dimspin)
+        sorted_indices_s2 = [ np.argsort(double_occ) for double_occ in double_occ_s2 ]
+        indices_selected_s2 = [ sorted_indices[0:dimspin] for sorted_indices, dimspin in zip(sorted_indices_s2, dimspin_s2) ]
+        
+        return indices_selected_s2, compute_T11m1_norm_s2(eigvecs_s2, indices_selected_s2, dimspin_s2)
 
     def min_t11_energy(self, double_occ, eigvecs, dimspin, eigvals):
         sorted_indices=np.argsort(eigvals)
         sorted_indices_selected = sorted_indices[0:dimspin]
         sorted_by_occ = np.argsort(double_occ[sorted_indices_selected])
-        return sorted_indices_selected[sorted_by_occ], compute_T11m1_norm(eigvecs, sorted_indices_selected[sorted_by_occ], dimspin)
+        indices_selected = sorted_indices_selected[sorted_by_occ]
+
+        return indices_selected, compute_T11m1_norm(eigvecs, indices_selected, dimspin)
 
     def min_t11_energy_s2(self, double_occ_s2, eigvecs_s2, dimspin_s2, eigvals_s2):
-        sorted_indices_s2= [np.argsort(eigvals) for eigvals in eigvals_s2]
-        sorted_indices_selected_s2= [sorted_indices[0:dimspin] for sorted_indices, dimspin in zip(sorted_indices_s2, dimspin_s2)]
-        sorted_by_occ_s2= [np.argsort(double_occ[sorted_indices_selected]) for double_occ, sorted_indices_selected in zip(double_occ_s2, sorted_indices_selected_s2)]
-        sorted_indices_selected_by_occ_s2= [ sorted_indices_selected[sorted_by_occ] for sorted_indices_selected, sorted_by_occ in zip(sorted_indices_selected_s2, sorted_by_occ_s2)]
+        sorted_indices_s2 = [ np.argsort(eigvals) for eigvals in eigvals_s2]
+        sorted_indices_selected_s2 = [ sorted_indices[0:dimspin] for sorted_indices, dimspin in zip(sorted_indices_s2, dimspin_s2)]
+        sorted_by_occ_s2 = [ np.argsort(double_occ[sorted_indices_selected]) for double_occ, sorted_indices_selected in zip(double_occ_s2, sorted_indices_selected_s2)]
+        indices_selected_s2 = [ sorted_indices_selected[sorted_by_occ] for sorted_indices_selected, sorted_by_occ in zip(sorted_indices_selected_s2, sorted_by_occ_s2)]
 
-        dimspin = np.sum(dimspin_s2)
-        eigvecs = np.concatenate(eigvecs_s2, axis=1)
-        indices_selected = np.concatenate(sorted_indices_selected_by_occ_s2)
-        return indices_selected, compute_T11m1_norm(eigvecs, indices_selected, dimspin)
+        return indices_selected_s2, compute_T11m1_norm_s2(eigvecs_s2, indices_selected_s2, dimspin_s2)
 
     def greedy_swap(self, init_idx, others, eigvecs, dimspin, f=None):
         t11_selected_indices=init_idx.copy()
@@ -510,6 +530,30 @@ class Hubbard_SingleBand:
 
         return t11_selected_indices, t11_swap_indices, best_norm
 
+    def greedy_swap_s2(self, init_idx_s2, others_s2, eigvecs_s2, dimspin_s2, f=None):
+        t11_selected_indices_s2=init_idx_s2.copy()
+        t11_swap_indices_s2=others_s2.copy()
+
+        best_norm=compute_T11m1_norm_s2(eigvecs_s2, t11_selected_indices_s2, dimspin_s2)
+        for idx in range(len(dimspin_s2)):
+            for i in range(len(t11_selected_indices_s2[idx])):
+                norm_list=[]
+                for j in range(len(t11_swap_indices_s2[idx])):
+                    t11_selected_indices_s2[idx][i], t11_swap_indices_s2[idx][j] = t11_swap_indices_s2[idx][j], t11_selected_indices_s2[idx][i]
+                    norm = compute_T11m1_norm_s2(eigvecs_s2, t11_selected_indices_s2, dimspin_s2)
+                    norm_list.append(norm)
+                    t11_selected_indices_s2[idx][i], t11_swap_indices_s2[idx][j] = t11_swap_indices_s2[idx][j], t11_selected_indices_s2[idx][i]
+
+                index_min=np.argmin(norm_list)
+                if norm_list[index_min]<best_norm:
+                    best_norm=norm_list[index_min]
+                    t11_selected_indices_s2[idx][i], t11_swap_indices_s2[idx][index_min] = t11_swap_indices_s2[idx][index_min], t11_selected_indices_s2[idx][i]
+        
+        if best_norm is np.inf:
+            return init_idx_s2.copy(), others_s2.copy(), best_norm
+        else:
+            return t11_selected_indices_s2, t11_swap_indices_s2, best_norm
+
     def min_t11_single(self, double_occ, eigvecs, dimspin, 
                        ratio=5):
         t0=time.time()
@@ -533,7 +577,7 @@ class Hubbard_SingleBand:
         sorted_by_occ = np.argsort(double_occ[t11_selected_indices])
         return t11_selected_indices[sorted_by_occ], best_norm
 
-    def min_t11_single_s2(self, double_occ_s2, eigvecs_s2, dimspin_s2, 
+    def min_t11_single_s2(self, double_occ_s2, eigvecs_s2, dimspin_s2   , 
                        ratio=5):
         t0=time.time()
         sorted_indices_s2    = [ np.argsort(double_occ) for double_occ in double_occ_s2]
@@ -541,20 +585,9 @@ class Hubbard_SingleBand:
         init_idx_s2          = [ sorted_indices[0:dimspin].copy() for sorted_indices, dimspin in zip(sorted_indices_s2, dimspin_s2)]
         others_s2            = [ sorted_indices[dimspin:size_space_mint11].copy() for sorted_indices, size_space_mint11, dimspin in zip(sorted_indices_s2, size_space_mint11_s2, dimspin_s2)]
 
-        #if self.sz is None:
-        #    f_svd=open(f"tmp/N{self.N}_U{self.U:.4f}_t{self.t_values[0]:.4f}_rank{rank}_single.txt", "w")
-        #else:
-        #    f_svd=open(f"tmp/N{self.N}_U{self.U:.4f}_t{self.t_values[0]:.4f}_sz{self.sz:.4f}_rank{rank}_single.txt", "w")
-        #f_svd.write(f"Start the greedy algorithm to find the best t11 indices\n")
-
-        t11_selected_indices, t11_swap_indices, best_norm=self.greedy_swap(init_idx, others, eigvecs, dimspin, f_svd)
-        #f_svd.write(f"Best |T11-1| = {best_norm:.12f}\n")
-        #f_svd.write(f"Total time cost: {time.time()-t0:.1f}s\n")
-        #f_svd.close()
-
-        # Resort the final selected indices by double occupation values
-        sorted_by_occ = np.argsort(double_occ[t11_selected_indices])
-        return t11_selected_indices[sorted_by_occ], best_norm
+        t11_selected_indices_s2, t11_swap_indices_s2, best_norm=self.greedy_swap_s2(init_idx_s2, others_s2, eigvecs_s2, dimspin_s2)
+        
+        return t11_selected_indices_s2, best_norm
 
     def min_t11_multi(self, double_occ, eigvecs, dimspin, 
                       ratio=4, rand_frac=0.10, ratio_rand_swap=2,
@@ -662,7 +695,7 @@ class Hubbard_SingleBand:
         sorted_by_occ = np.argsort(selected_double_occ)
         return best_selected_indices[sorted_by_occ], best_norm
     
-    def max_overlap_adiabatic(self, eigvecs, filename_eigvecs, filename_indices):
+    def max_overlap_adiabatic(self, eigvecs, dimspin, filename_eigvecs, filename_indices):
         t0=time.time()
         try:
             eigvecs_previous = np.load(f"{filename_eigvecs}_eigvecs.npy", allow_pickle=False)
@@ -673,9 +706,30 @@ class Hubbard_SingleBand:
 
         Norms_Matrix = np.abs(eigvecs_previous.conj().T @ eigvecs) ** 2
         Norms_vector = np.sum(Norms_Matrix, axis=0)
-        
         max_overlap_indices = np.argsort(Norms_vector)[-len(selected_indices_previous):]
-        return max_overlap_indices
+
+        overlap = np.sum(Norms_vector[max_overlap_indices])
+        best_norm = compute_T11m1_norm(eigvecs, max_overlap_indices, dimspin)
+        return max_overlap_indices, best_norm, overlap
+        
+    def max_overlap_adiabatic_s2(self, eigvecs_s2, dimspin_s2, s2_indices, filename_eigvecs, filename_indices):
+        t0=time.time()
+        eigvecs = np.concatenate(eigvecs_s2, axis=1)
+        try:
+            eigvecs_previous = np.load(f"{filename_eigvecs}_eigvecs.npy", allow_pickle=False)
+        except:
+            eigvecs_previous = np.loadtxt(f"{filename_eigvecs}_eigvecs.npy", dtype=complex)
+        selected_indices_previous = np.loadtxt(f"{filename_indices}_t11_selected_indices.npy", dtype=int)
+        eigvecs_previous = eigvecs_previous[:, selected_indices_previous]
+
+        Norms_Matrix = np.abs(eigvecs_previous.conj().T @ eigvecs) ** 2
+        Norms_vector = np.sum(Norms_Matrix, axis=0)
+        Norms_vector_s2 = [ Norms_vector[indices] for indices in s2_indices]
+        max_overlap_indices_s2 = [ np.argsort(Norms_vector_s2[idx])[-dimspin_s2[idx]:] for idx in range(len(dimspin_s2))]
+
+        overlap = np.sum([ np.sum(Norms_vector_s2[idx][max_overlap_indices_s2[idx]]) for idx in range(len(dimspin_s2))])
+        best_norm = compute_T11m1_norm_s2(eigvecs_s2, max_overlap_indices_s2, dimspin_s2)
+        return max_overlap_indices_s2, best_norm, overlap
         
     
     def calc_spin_coeff(self, bonds, s2=None):
