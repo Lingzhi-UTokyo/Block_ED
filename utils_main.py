@@ -4,6 +4,7 @@ import time
 import glob
 import psutil
 import numpy as np
+import matplotlib.pyplot as plt
 from math import comb
 from datetime import datetime
 from Hubbard_SingleBand import *

@@ -4,11 +4,9 @@ This program is used to calculate the figure of double occupation
 
 import os
 import sys
-import copy
 import time
 import numpy as np
 from mpi4py import MPI
-import matplotlib.pyplot as plt
 from Clusters_Square import *
 from utils_main import *
 
@@ -53,7 +51,7 @@ def main(params):
     # Initialize variables for all ranks
     clusters = None
     work_items = None
-    U=1.0
+    U = params['U']
     #t_list = list(np.linspace(0.4000, 0.6000, 11))
     t_list = list(np.linspace(0.0200, 0.6000, 30))
     x_list = [ t/U for t in t_list[1:]]
@@ -101,9 +99,11 @@ def main(params):
             t=float(t_list[idx])
             eig_filename = f"Block/Block_U{U:.4f}_t{t:.4f}/N{params['N']}{suffix1}/hole{hole}_class{class_idx}_eigvecs.npy"
             occ_filename = f"Block/Block_U{U:.4f}_t{t:.4f}/N{params['N']}{suffix1}{suffix2}/hole{hole}_class{class_idx}_t11_selected_indices.npy"
-
-            eigvecs = np.load(eig_filename, allow_pickle=False)
-            occ_indices = np.loadtxt(occ_filename, dtype=int)
+            try:
+                eigvecs = np.load(eig_filename, allow_pickle=False)
+            except:
+                eigvecs = np.loadtxt(eig_filename, dtype=complex)
+            occ_indices = np.atleast_1d(np.loadtxt(occ_filename, dtype=int))
 
             eigvecs_now = eigvecs[:, occ_indices]
             if eigvecs_previous is None:
@@ -121,8 +121,15 @@ def main(params):
 
     # Ensure all ranks have finished their work before gathering results
     comm.Barrier()
-    write_data(x_list, overlaps_list, filename=f"{result_dir}{suffix1}/data/data_coupling{suffix2}.txt")
-    plot_data(x_list, overlaps_list, filename=f"{result_dir}{suffix1}/coupling{suffix2}.png", labels=None, xlims=[0.0000, 0.600], ylims=[0.0, 1.1])
+    gathered_overlaps = comm.gather((rank, overlaps_list), root=0)
+
+    if rank == 0:
+        gathered_overlaps.sort(key=lambda item: item[0])
+        combined_overlaps = []
+        for _, rank_overlaps in gathered_overlaps:
+            combined_overlaps.extend(rank_overlaps)
+        write_data(x_list, combined_overlaps, filename=f"{result_dir}{suffix1}/data/data_coupling{suffix2}.txt")
+        plot_data(x_list, combined_overlaps, filename=f"{result_dir}{suffix1}/coupling{suffix2}.png", labels=None, xlims=[0.0000, 0.600], ylims=[0.0, 1.1])
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] in ['-h', '--help']:
@@ -136,4 +143,3 @@ if __name__ == "__main__":
         print(f"Using parameters: N={params['N']}, U={params['U']}, t={params['t']}")
     main(params)
     
-
