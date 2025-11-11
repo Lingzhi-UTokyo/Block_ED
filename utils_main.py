@@ -361,3 +361,31 @@ def write_timing_status(result_dir, all_times, total_time):
                 f.write(f"Work item (hole={hole}, class={class_idx}): {time:.6f} seconds\n")
             f.write("\n")
 
+def write_data(x_list, data, filename):
+    nx=len(x_list)
+    ny=len(data)
+    with open(filename, "w") as f:
+        for i in range(nx):
+            f.write(f"{x_list[i]:.6f}")
+            for j in range(ny):
+                f.write(f" {data[j][i]:.12f}")
+            f.write("\n")
+
+def plot_data(x_list, data, filename, labels=None, ylims=None, xlims=None):
+    if labels is None:
+        labels = [f"hole{idx}" for idx in range(len(data))]
+    if xlims is None:
+        xlims = [0.0000, 1.000]
+    if ylims is None:
+        ylims = [0.0, 1.0]
+    fig, ax = plt.subplots(1, 1, figsize=(6, 6))
+    for idx in range(len(data)):
+        ax.plot(x_list, data[idx], label=labels[idx], linewidth=1.0)
+        ax.scatter(x_list, data[idx], linewidth=1.0)
+    ax.set_title("Overlap of all clusters")
+    ax.set_xlabel("t/U")
+    ax.set_ylabel("Overlap")
+    ax.set_xlim(xlims[0], xlims[1])
+    ax.set_ylim(ylims[0], ylims[1])
+    fig.savefig(filename, dpi=300, bbox_inches='tight')
+    plt.close(fig)
